@@ -23,10 +23,14 @@ public class Product implements Serializable {
   @Column(name = "main_image_url")
   public String mainImageUrl;
 
+  @Column(name = "etag")
+  public String eTag;
+
   @Builder
-  public Product(String productName, String mainImageUrl) {
+  public Product(String productName, String mainImageUrl, String eTag) {
     this.productName = productName;
     this.mainImageUrl = mainImageUrl;
+    this.eTag = eTag;
   }
 }
 

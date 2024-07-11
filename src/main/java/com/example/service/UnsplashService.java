@@ -7,16 +7,21 @@ import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.*;
+import com.example.domain.Product;
+import com.example.domain.ProductRepository;
+import com.example.dto.ProductDto;
 import com.example.dto.UnsplashDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.UUID;
@@ -31,11 +36,21 @@ public class UnsplashService {
   @Value("${UNSPLASH_API_URL}")
   private String apiUrl;
 
+  @Value("${NAVER_CLOUD_ACCESS_KEY}")
+  private String objectStorageAccessKey;
+
+  @Value("${NAVER_CLOUD_SECRET_KEY}")
+  private String objectStorageSecretKey;
+
+  @Value("${NAVER_CLOUD_ENDPOINT}")
+  private String endPoint;
+
+  @Value("${NAVER_CLOUD_REGION}")
+  private String regionName;
+
   private final RestTemplate restTemplate;
-  final String endPoint = "https://kr.object.ncloudstorage.com";
-  final String regionName = "kr-standard";
-  final String objectStorageAccessKey = "R328jTsxPBLHp2cuWF2j";
-  final String objectStorageSecretKey = "LrgxfVn4LdAJ4FLYYnCpHeWWgbspSPrb2oz0DwuJ";
+
+  private final ProductRepository productRepository;
 
 
   public String getRandomImageJson() {
@@ -62,7 +77,7 @@ public class UnsplashService {
 
 // 다른 import 문들과 함께 추가
 
-  public PutObjectResult uploadImage() throws IOException {
+  public ProductDto uploadImage() throws IOException {
     final AmazonS3 s3 = AmazonS3ClientBuilder.standard()
             .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endPoint, regionName))
             .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials(objectStorageAccessKey, objectStorageSecretKey)))
@@ -90,7 +105,17 @@ public class UnsplashService {
 
     try {
       System.out.format("Uploading file to %s/%s\n", bucketName, objectKey);
-      return s3.putObject(putObjectRequest);
+      PutObjectResult result = s3.putObject(putObjectRequest);
+      // 업로드된 객체의 URL 생성
+      String objectUrl = s3.getUrl(bucketName, objectKey).toString();
+      System.out.println("Object URL: " + objectUrl);
+
+      String eTag = result.getETag();
+
+      System.out.println("eTag = " + eTag);
+      // 데이터베이스에 저장
+      return saveImageUrlToDatabase(objectUrl, eTag);
+
     } catch (AmazonS3Exception e) {
       e.printStackTrace();
     } catch (SdkClientException e) {
@@ -100,6 +125,13 @@ public class UnsplashService {
     }
 
     return null;
+  }
+
+  @Transactional
+  public ProductDto saveImageUrlToDatabase(String imageUrl, String etag) {
+    Product product = Product.builder().productName("Sample Image").mainImageUrl(imageUrl).eTag(etag).build();
+    Product saveProduct = productRepository.save(product);
+    return  new ProductDto(saveProduct);
   }
 
 
@@ -112,5 +144,14 @@ public class UnsplashService {
     try (InputStream in = connection.getInputStream()) {
       return in.readAllBytes();
     }
+  }
+
+  public String getImage(Integer id) {
+    Product product = productRepository.findById(BigInteger.valueOf(id)).orElseThrow(() -> new IllegalArgumentException("Invalid ID"));
+    return product.getMainImageUrl();
+  }
+
+  public Product getProductById(BigInteger bigInteger) {
+    return productRepository.findById(bigInteger).orElseThrow(() -> new IllegalArgumentException("Invalid ID"));
   }
 }
